@@ -45,7 +45,8 @@ runs:
         rustup toolchain install stable --profile minimal
         rustup default stable
         export CARGO_TARGET_DIR="${RUNNER_TEMP:-/tmp}/stellar-upgrade-guard-target"
-        cargo install --path "$GITHUB_ACTION_PATH/.." --bin stellar-upgrade-guard --locked --force
+        action_repo="$(cd "$GITHUB_ACTION_PATH/.." && pwd -P)"
+        cargo install --path "$action_repo/crates/guard-cli" --bin stellar-upgrade-guard --locked --force
 
     - name: Compare contract interfaces
       id: compare
