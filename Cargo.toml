@@ -2,6 +2,7 @@
 members = [
     "crates/guard-core",
     "crates/guard-cli",
+    "crates/guard-rpc",
 ]
 exclude = [
     "fixtures/basic-contract",
@@ -15,6 +16,7 @@ exclude = [
     "fixtures/phase2/breaking-return-type-changed/new",
     "fixtures/phase2/struct-field-changed/old",
     "fixtures/phase2/struct-field-changed/new",
+    "fixtures/phase3/live-breaking-candidate",
 ]
 resolver = "2"
 
@@ -26,8 +28,14 @@ repository = "https://github.com/Dayz-tech-co/stellar-upgrade-guard"
 [workspace.dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
 guard-core = { path = "crates/guard-core" }
+guard-rpc = { path = "crates/guard-rpc" }
+async-trait = "0.1.89"
+hex = "0.4.3"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 soroban-spec = "28.0.0"
-stellar-xdr = "28.0.0"
+stellar-strkey = "0.0.18"
+stellar-xdr = { version = "28.0.0", features = ["base64"] }
 thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }

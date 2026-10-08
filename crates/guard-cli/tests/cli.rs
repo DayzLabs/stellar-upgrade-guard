@@ -131,6 +131,54 @@ fn json_compare_stdout_is_structured_without_stderr_noise() {
     assert_eq!(json["findings"][0]["code"], "return_type_changed");
 }
 
+#[test]
+fn compare_rejects_mixing_local_and_deployed_modes() {
+    let output = command()
+        .args([
+            "compare",
+            "--old",
+            fixture("fixtures/phase2/compatible-function-added/old.wasm")
+                .to_str()
+                .unwrap(),
+            "--new",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+            "--contract",
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            "--candidate",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be combined"));
+}
+
+#[test]
+fn mainnet_deployed_compare_requires_rpc_url() {
+    let output = command()
+        .args([
+            "compare",
+            "--contract",
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            "--candidate",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+            "--network",
+            "mainnet",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires --rpc-url"));
+}
+
 fn command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_stellar-upgrade-guard"))
 }

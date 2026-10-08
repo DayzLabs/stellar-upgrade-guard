@@ -20,6 +20,7 @@ The Phase 1 workspace uses aligned Stellar v28 crates:
 
 - `stellar-xdr = 28.0.0`
 - `soroban-spec = 28.0.0`
+- `stellar-strkey = 0.0.18`
 - fixture-only `soroban-sdk = 28.0.0`
 
 The v28 line is selected because the current Soroban SDK v28 release uses `stellar-xdr` v28 and requires Stellar CLI v25.2.0 or newer for WASM contract builds.
@@ -29,10 +30,12 @@ The v28 line is selected because the current Soroban SDK v28 release uses `stell
 ```text
 crates/
   guard-core/    parser, errors, normalization, public library API
-  guard-cli/     minimal inspect command
+  guard-cli/     inspect and compare command-line interface
+  guard-rpc/     Stellar RPC ledger-entry client and deployed WASM fetcher
 fixtures/
   basic-contract/  tiny Soroban contract source for rebuilding a real fixture
   phase2/          old/new Soroban fixture pairs plus committed small WASM files
+  phase3/          live-validation fixture source
 docs/
 ```
 
@@ -53,6 +56,22 @@ JSON output is also available:
 ```text
 cargo run -p guard-cli -- inspect path/to/contract.wasm --format json
 ```
+
+## Compare A Deployed Contract
+
+Deployed comparison fetches the contract instance and contract code through Stellar RPC, then passes the deployed WASM and local candidate WASM to the same compatibility engine used by local comparison.
+
+```text
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet
+```
+
+For any endpoint not covered by a built-in network default, provide `--rpc-url`:
+
+```text
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://example-rpc.invalid
+```
+
+Normal workspace tests are offline. `guard-rpc` unit tests use mocked ledger-entry responses and generated XDR, so they do not require network access or account keys. Manual live RPC validation should use an externally supplied contract id and RPC URL when available.
 
 ## Tests
 
@@ -95,3 +114,20 @@ Example:
 ```text
 stellar contract build --manifest-path fixtures/phase2/breaking-return-type-changed/old/Cargo.toml
 ```
+
+Phase 3 includes `fixtures/phase3/live-breaking-candidate`, a source-only fixture used for live Testnet validation. It intentionally preserves `hello(name: Symbol)` from `fixtures/basic-contract` while changing the return type to `String`.
+
+To rebuild the candidate:
+
+```text
+cd fixtures/phase3/live-breaking-candidate
+stellar contract build
+```
+
+Expected output:
+
+```text
+target/wasm32v1-none/release/live_breaking_candidate.wasm
+```
+
+The generated `target/` directory is build output and must not be committed.

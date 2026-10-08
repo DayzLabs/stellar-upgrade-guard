@@ -2,7 +2,7 @@
 
 Early-stage open-source tooling for inspecting Soroban contract specifications and detecting deterministic interface compatibility changes.
 
-The current Phase 2 capability is intentionally scoped: the CLI can inspect a compiled Soroban WASM file, extract its official `contractspecv0` interface data, compare two local WASM interfaces, and report structured findings. It does not prove runtime behavior, authorization behavior, storage migration safety, or that an upgrade is safe.
+The current Phase 3 capability is intentionally scoped: the CLI can inspect a compiled Soroban WASM file, extract its official `contractspecv0` interface data, compare two local WASM interfaces, compare a deployed contract against a candidate WASM through Stellar RPC, and report structured findings. It does not prove runtime behavior, authorization behavior, storage migration safety, or that an upgrade is safe.
 
 ## Build
 
@@ -57,6 +57,20 @@ Compatible changes:
 
 Result: BREAKING
 ```
+
+## Compare A Deployed Contract
+
+```text
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet
+```
+
+Use `--rpc-url` to supply an explicit RPC endpoint:
+
+```text
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://example-rpc.invalid
+```
+
+`--contract`/`--candidate` mode is mutually exclusive with local `--old`/`--new` mode. The built-in `testnet` network resolves to Stellar's public testnet RPC endpoint. Mainnet comparison requires `--rpc-url` so callers choose their provider explicitly.
 
 ## Current Rule Coverage
 

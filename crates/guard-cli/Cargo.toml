@@ -12,7 +12,10 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 guard-core.workspace = true
+guard-rpc.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 stellar-xdr.workspace = true
