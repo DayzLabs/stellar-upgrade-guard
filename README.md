@@ -85,17 +85,49 @@ Result: BREAKING
 
 ## Compare A Deployed Contract
 
+Deployed comparison fetches the deployed contract's WASM through Stellar RPC, then compares it to a local candidate WASM. It requires both `--contract` and `--candidate`, and is mutually exclusive with local `--old`/`--new` mode.
+
+### Testnet Using The Built-in Default
+
+`--network testnet` resolves to Stellar's public testnet RPC endpoint. No `--rpc-url` is needed:
+
 ```text
 stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet
 ```
 
-Use `--rpc-url` to supply an explicit RPC endpoint:
+### Custom RPC Endpoint
+
+Pass `--rpc-url` to use a third-party or self-hosted endpoint:
 
 ```text
-stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://example-rpc.invalid
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://my-rpc.example.com
 ```
 
-`--contract`/`--candidate` mode is mutually exclusive with local `--old`/`--new` mode. The built-in `testnet` network resolves to Stellar's public testnet RPC endpoint. Mainnet comparison requires `--rpc-url` so callers choose their provider explicitly.
+`--rpc-url` may be supplied on its own; `--network` is not required when an explicit endpoint is given.
+
+### Mainnet
+
+There is no built-in mainnet RPC default. Mainnet comparison requires an explicitly configured endpoint, because production RPC usage should make the provider explicit:
+
+```text
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network mainnet --rpc-url https://my-mainnet-rpc.example.com
+```
+
+### How `--network` And `--rpc-url` Interact
+
+- `--network` resolves the endpoint from a built-in default for that network.
+- Only `testnet` has a built-in default. `mainnet` does not, so it requires `--rpc-url`.
+- When both are supplied, `--rpc-url` takes precedence over the network default. `--network` is then used only to label the output.
+- Deployed comparison requires at least one of `--network` or `--rpc-url`.
+
+### Handling Credential-Bearing RPC URLs
+
+Some RPC providers embed an API key or token in the endpoint URL. Treat any such URL as a secret:
+
+- Do not commit credential-bearing RPC URLs to the repository, workflow files, or documentation.
+- Pass them through environment variables or CI secrets and expand them at runtime, for example `--rpc-url "$RPC_URL"`.
+- Prefer a read-only or restricted endpoint, and rotate any key that may have been exposed.
+- Do not paste credential-bearing URLs into issues, pull requests, or logs.
 
 ## GitHub Action
 
