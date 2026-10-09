@@ -8,10 +8,9 @@ This project follows Keep a Changelog style and intends to use Semantic Versioni
 
 ### Added
 
-- Open-source project documentation for contributing, security, governance, roadmap, release readiness, and maintainer guidance.
-- Issue and pull request templates for public collaboration.
+- No changes yet.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-09
 
 ### Added
 
@@ -26,3 +25,5 @@ This project follows Keep a Changelog style and intends to use Semantic Versioni
 - Real Testnet validation for deployed comparison.
 - Phase 2 and Phase 3 Soroban fixtures.
 - Documentation for development, RPC architecture, compatibility rules, and release preparation.
+- Open-source project documentation for contributing, security, governance, roadmap, release readiness, and maintainer guidance.
+- Issue and pull request templates for public collaboration.

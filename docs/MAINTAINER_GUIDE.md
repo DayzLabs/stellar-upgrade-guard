@@ -19,7 +19,7 @@ Recommended settings for `main`:
 
 The maintainer decides when a release is ready, updates versions and changelog entries, creates tags, and publishes releases. Do not create release tags from feature branches.
 
-Before the first public release, enable GitHub private vulnerability reporting or document another private security contact in `SECURITY.md`.
+Keep GitHub private vulnerability reporting enabled and keep `SECURITY.md` aligned with the repository's private reporting path.
 
 ## Versioning
 
