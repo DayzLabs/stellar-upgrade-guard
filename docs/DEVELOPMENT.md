@@ -121,13 +121,13 @@ Expected results:
 
 The action is targeted at GitHub-hosted Ubuntu runners first. It relies on Rust and Python being available on the runner; the action installs stable Rust before building the CLI.
 
-For development examples, reference the action by commit SHA or branch:
+For release examples, reference the action by the release tag after `v0.1.0` is created:
 
 ```yaml
-uses: DayzLabs/stellar-upgrade-guard/action@<commit-sha>
+uses: DayzLabs/stellar-upgrade-guard/action@v0.1.0
 ```
 
-Do not create or document stable release tags until a release exists.
+Before the release tag exists, use a reviewed commit SHA.
 
 ## Fixture Build
 
