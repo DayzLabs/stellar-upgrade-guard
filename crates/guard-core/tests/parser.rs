@@ -235,7 +235,10 @@ fn normalizes_composite_and_primitive_types_without_flattening() {
     assert_eq!(inputs[4].type_ref, TypeRef("Result<u64, Error>".to_owned()));
     assert_eq!(inputs[5].type_ref, TypeRef("Account".to_owned()));
     assert_eq!(inputs[6].type_ref, TypeRef("Option<Vec<u32>>".to_owned()));
-    assert_eq!(inputs[7].type_ref, TypeRef("Map<Address, Vec<u64>>".to_owned()));
+    assert_eq!(
+        inputs[7].type_ref,
+        TypeRef("Map<Address, Vec<u64>>".to_owned())
+    );
     assert_eq!(inputs[8].type_ref, TypeRef("Option<Account>".to_owned()));
     assert_eq!(inputs[9].type_ref, TypeRef("i32".to_owned()));
     assert_eq!(inputs[10].type_ref, TypeRef("i64".to_owned()));
