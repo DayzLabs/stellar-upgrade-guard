@@ -11,7 +11,7 @@ It does not prove storage migration safety, authorization behavior, runtime beha
 
 ## Current Status
 
-The project is preparing for an initial `v0.1.0` release. Current functionality is useful for CI guardrails, but compatibility semantics are intentionally conservative and pre-1.0 APIs may change.
+Current release: `v0.1.0`. Current functionality is useful for CI guardrails, but compatibility semantics are intentionally conservative and pre-1.0 APIs may change.
 
 ## Why This Exists
 
@@ -24,16 +24,16 @@ Requires Rust 1.91.0 or newer.
 From a source checkout:
 
 ```text
-cargo install --path crates/guard-cli --locked
+cargo install --path crates/guard-cli --locked --bin stellar-upgrade-guard
 ```
 
-From Git:
+From the release tag, after `v0.1.0` is created:
 
 ```text
-cargo install --git https://github.com/DayzLabs/stellar-upgrade-guard --locked --bin stellar-upgrade-guard
+cargo install --git https://github.com/DayzLabs/stellar-upgrade-guard --tag v0.1.0 --locked --bin stellar-upgrade-guard
 ```
 
-The project is not yet published to crates.io and does not yet publish binary release artifacts.
+Before the release tag exists, install from a local source checkout or a reviewed commit SHA. The project is not yet published to crates.io and does not yet publish binary release artifacts.
 
 ## Inspect A WASM
 
@@ -99,10 +99,10 @@ stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.was
 
 ## GitHub Action
 
-This repository provides a composite GitHub Action at `action/` for external Soroban projects. Until stable tags exist, reference a commit SHA or development branch:
+This repository provides a composite GitHub Action at `action/` for external Soroban projects. After the `v0.1.0` tag is created, reference:
 
 ```yaml
-- uses: DayzLabs/stellar-upgrade-guard/action@<commit-sha>
+- uses: DayzLabs/stellar-upgrade-guard/action@v0.1.0
   with:
     old-wasm: ./artifacts/old.wasm
     new-wasm: ./artifacts/new.wasm
@@ -111,12 +111,14 @@ This repository provides a composite GitHub Action at `action/` for external Sor
 Deployed contract comparison:
 
 ```yaml
-- uses: DayzLabs/stellar-upgrade-guard/action@<commit-sha>
+- uses: DayzLabs/stellar-upgrade-guard/action@v0.1.0
   with:
     contract-id: CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     candidate-wasm: ./target/wasm32v1-none/release/contract.wasm
     network: testnet
 ```
+
+Before the release tag exists, reference a reviewed commit SHA instead.
 
 The action preserves CLI exit behavior and fails workflows on exit `1` or `2`. See [action/README.md](action/README.md) for inputs, outputs, and security notes.
 
