@@ -23,14 +23,26 @@ This mirrors Stellar RPC's documented two-step lookup for contract WASM: first f
 
 ## Network Resolution
 
-The CLI supports:
+The CLI resolves the RPC endpoint in `compare_mode` before fetching:
 
 ```text
 stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet
-stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://example-rpc.invalid
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://my-rpc.example.com
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network mainnet --rpc-url https://my-mainnet-rpc.example.com
 ```
 
-`testnet` resolves to `https://soroban-testnet.stellar.org`. Mainnet requires `--rpc-url`, because production mainnet RPC usage should make the provider explicit.
+Resolution order:
+
+1. When `--rpc-url` is supplied, it is used verbatim and overrides any network default.
+2. Otherwise `--network` is required and its built-in default endpoint is used.
+3. `testnet` resolves to `https://soroban-testnet.stellar.org`.
+4. `mainnet` has no built-in default, so omitting `--rpc-url` fails with `mainnet deployed compare requires --rpc-url`.
+
+Because `--rpc-url` takes precedence over `--network`, supplying both is allowed; the network value is retained only to label the output.
+
+## Credential Handling
+
+RPC URLs can embed provider API keys or tokens. The RPC layer treats the endpoint as opaque and does not redact credentials, so supply credential-bearing URLs through environment variables or CI secrets rather than committing them, and avoid logging them.
 
 ## Testing
 

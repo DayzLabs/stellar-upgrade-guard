@@ -74,15 +74,27 @@ cargo run -p guard-cli -- inspect path/to/contract.wasm --format json
 
 Deployed comparison fetches the contract instance and contract code through Stellar RPC, then passes the deployed WASM and local candidate WASM to the same compatibility engine used by local comparison.
 
+Testnet uses the built-in default endpoint through `--network testnet`:
+
 ```text
 cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet
 ```
 
-For any endpoint not covered by a built-in network default, provide `--rpc-url`:
+For a third-party or self-hosted endpoint, provide `--rpc-url`. It may be supplied without `--network`, and it overrides the network default when both are given:
 
 ```text
-cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://example-rpc.invalid
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --rpc-url https://my-rpc.example.com
 ```
+
+Mainnet has no built-in default, so it requires `--rpc-url`:
+
+```text
+cargo run -p guard-cli -- compare --contract <CONTRACT_ID> --candidate candidate.wasm --network mainnet --rpc-url https://my-mainnet-rpc.example.com
+```
+
+Deployed mode requires both `--contract` and `--candidate`, and at least one of `--network` or `--rpc-url`.
+
+Keep credential-bearing RPC URLs out of source, scripts, and committed documentation. Inject them from the environment (for example `--rpc-url "$RPC_URL"`) and use a restricted or read-only endpoint.
 
 Normal workspace tests are offline. `guard-rpc` unit tests use mocked ledger-entry responses and generated XDR, so they do not require network access or account keys. Manual live RPC validation should use an externally supplied contract id and RPC URL when available.
 
