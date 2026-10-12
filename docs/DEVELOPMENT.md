@@ -39,6 +39,16 @@ fixtures/
 docs/
 ```
 
+### Canonical fixture paths
+
+Integration tests reference fixtures only via the canonical paths
+`fixtures/phase2/<scenario>/old.wasm` and `fixtures/phase2/<scenario>/new.wasm`.
+Build output directories (`fixtures/phase2/.build-target`, the removed
+`fixtures/phase2/wasm`) must not appear in tests: the meta-test in
+`crates/guard-core/tests/fixture_paths.rs` fails the build if they do, and also
+checks that every `fixtures/phase2` scenario that holds one half of a pair
+holds the other.
+
 ## Repository CI
 
 The repository CI workflow runs the local quality gate on pull requests and pushes to `main`:
