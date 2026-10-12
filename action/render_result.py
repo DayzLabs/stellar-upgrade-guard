@@ -6,7 +6,11 @@ import sys
 
 
 def sanitize(text):
-    text = re.sub(r"(?i)(authorization:\s*)\S+", r"\1<redacted>", text)
+    text = re.sub(
+        r"(?i)(authorization:\s*)(?:(?:bearer|basic)\s+)?\S+",
+        r"\1<redacted>",
+        text,
+    )
     text = re.sub(r"(?i)(api[-_]?key=)[^&\s]+", r"\1<redacted>", text)
     text = re.sub(r"(?i)(token=)[^&\s]+", r"\1<redacted>", text)
     text = re.sub(r"(https?://[^:/\s]+):[^@\s]+@", r"\1:<redacted>@", text)
