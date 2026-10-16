@@ -18,6 +18,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Test action result rendering
+        run: python3 action/test_render_result.py
+
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal
