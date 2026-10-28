@@ -1,8 +1,8 @@
 use std::{path::PathBuf, process::Command};
 
 use stellar_xdr::{
-    Limits, ScSpecEntry, ScSpecTypeDef, ScSpecUdtStructFieldV0, ScSpecUdtStructV0, StringM, VecM,
-    WriteXdr,
+    Limits, ScEnvMetaEntry, ScEnvMetaEntryInterfaceVersion, ScSpecEntry, ScSpecTypeDef,
+    ScSpecUdtStructFieldV0, ScSpecUdtStructV0, StringM, VecM, WriteXdr,
 };
 
 #[test]
@@ -553,6 +553,72 @@ fn rpc_timeout_must_be_positive() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("--rpc-timeout"));
+}
+
+fn wasm_with_env_meta(protocol: u32) -> Vec<u8> {
+    let mut wasm = wasm_with_contract_spec(&[]);
+    let entry = ScEnvMetaEntry::ScEnvMetaKindInterfaceVersion(ScEnvMetaEntryInterfaceVersion {
+        protocol,
+        pre_release: 0,
+    })
+    .to_xdr(Limits::none())
+    .expect("env meta serializes");
+    let name = b"contractenvmetav0";
+    let mut payload = Vec::new();
+    encode_leb_u32(name.len() as u32, &mut payload);
+    payload.extend(name);
+    payload.extend(entry);
+    wasm.push(0);
+    encode_leb_u32(payload.len() as u32, &mut wasm);
+    wasm.extend(payload);
+    wasm
+}
+
+#[test]
+fn env_interface_version_change_is_unknown_and_respects_fail_on() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("old.wasm");
+    let new = dir.path().join("new.wasm");
+    std::fs::write(&old, wasm_with_env_meta(28)).expect("write old");
+    std::fs::write(&new, wasm_with_env_meta(29)).expect("write new");
+    let run = |extra: &[&str]| {
+        command()
+            .args(["compare", "--old", old.to_str().unwrap()])
+            .args(["--new", new.to_str().unwrap(), "--format", "json"])
+            .args(extra)
+            .output()
+            .expect("compare command runs")
+    };
+
+    let default = run(&[]);
+    assert_eq!(default.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&default.stdout).expect("json");
+    assert_eq!(json["result"], "unknown");
+    assert_eq!(json["findings"][0]["code"], "env_interface_version_changed");
+    assert_eq!(json["findings"][0]["impact"], "unknown");
+
+    assert_eq!(run(&["--fail-on", "breaking"]).status.code(), Some(0));
+}
+
+#[test]
+fn inspect_prints_env_interface_version() {
+    let output = command()
+        .args([
+            "inspect",
+            fixture("fixtures/phase2/compatible-function-added/old.wasm")
+                .to_str()
+                .unwrap(),
+        ])
+        .output()
+        .expect("inspect runs");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("Env interface version:\n- protocol 28, pre-release 0")
+            || String::from_utf8_lossy(&output.stdout)
+                .contains("Env interface version:\r\n- protocol 28, pre-release 0")
+    );
 }
 
 fn command() -> Command {

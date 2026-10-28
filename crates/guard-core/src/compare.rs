@@ -4,8 +4,8 @@ use crate::{
     error::GuardError,
     model::{
         CompatibilityFinding, CompatibilityImpact, CompatibilityReport, ContractInterface,
-        EnumCase, ErrorCase, EventParam, FindingCode, FunctionInput, FunctionSpec, StructField,
-        TypeRef, UnionCase,
+        EnumCase, EnvMeta, ErrorCase, EventParam, FindingCode, FunctionInput, FunctionSpec,
+        StructField, TypeRef, UnionCase,
     },
     parse_contract_interface,
 };
@@ -25,6 +25,7 @@ pub fn compare_interfaces(old: &ContractInterface, new: &ContractInterface) -> C
     compare_errors(old, new, &mut findings);
     compare_unions(old, new, &mut findings);
     compare_events(old, new, &mut findings);
+    compare_env_meta(old, new, &mut findings);
 
     findings.sort_by(|left, right| {
         impact_rank(left.impact)
@@ -616,6 +617,52 @@ fn compare_event_params(
             Some(format_event_params(old_params)),
             Some(format_event_params(new_params)),
         ));
+    }
+}
+
+/// Compares `contractenvmetav0`.
+///
+/// The interface version names the host environment a contract was built against. Whether a
+/// given version runs on a given network depends on the network's protocol, which this tool
+/// does not know, so every difference is `Unknown` rather than a guess at compatibility.
+fn compare_env_meta(
+    old: &ContractInterface,
+    new: &ContractInterface,
+    findings: &mut Vec<CompatibilityFinding>,
+) {
+    match (old.env_meta, new.env_meta) {
+        (EnvMeta::Absent, EnvMeta::Absent) => {}
+        (EnvMeta::InterfaceVersion(old_version), EnvMeta::InterfaceVersion(new_version)) => {
+            if old_version != new_version {
+                findings.push(finding(
+                    FindingCode::EnvInterfaceVersionChanged,
+                    CompatibilityImpact::Unknown,
+                    "env.interface_version".to_owned(),
+                    format!("Env interface version changed: {old_version} -> {new_version}"),
+                    Some(old_version.to_string()),
+                    Some(new_version.to_string()),
+                ));
+            }
+        }
+        (old_meta, new_meta) => {
+            let (old_state, new_state) = (describe_env_meta(old_meta), describe_env_meta(new_meta));
+            findings.push(finding(
+                FindingCode::EnvMetaUnavailable,
+                CompatibilityImpact::Unknown,
+                "env".to_owned(),
+                format!("Env metadata cannot be compared: old is {old_state}, new is {new_state}"),
+                Some(old_state),
+                Some(new_state),
+            ));
+        }
+    }
+}
+
+fn describe_env_meta(meta: EnvMeta) -> String {
+    match meta {
+        EnvMeta::Absent => "absent".to_owned(),
+        EnvMeta::InterfaceVersion(version) => version.to_string(),
+        EnvMeta::Unreadable => "unreadable".to_owned(),
     }
 }
 

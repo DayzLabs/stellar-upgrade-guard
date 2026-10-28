@@ -7,7 +7,7 @@ use std::{
 
 use clap::{Parser, Subcommand, ValueEnum};
 use guard_core::{
-    CompatibilityImpact, CompatibilityReport, CompatibilityResult, ContractInterface,
+    CompatibilityImpact, CompatibilityReport, CompatibilityResult, ContractInterface, EnvMeta,
     compare_interfaces, compare_wasm, parse_contract_interface_file,
 };
 use guard_rpc::{Network as RpcNetwork, fetch_contract_wasm_with_timeout};
@@ -337,6 +337,17 @@ fn print_text(interface: &ContractInterface) {
     print_types(interface);
     print_errors(interface);
     print_events(interface);
+    print_env_meta(interface);
+}
+
+fn print_env_meta(interface: &ContractInterface) {
+    println!();
+    println!("Env interface version:");
+    match interface.env_meta {
+        EnvMeta::Absent => println!("- none"),
+        EnvMeta::InterfaceVersion(version) => println!("- {version}"),
+        EnvMeta::Unreadable => println!("- unreadable"),
+    }
 }
 
 fn print_functions(interface: &ContractInterface) {
