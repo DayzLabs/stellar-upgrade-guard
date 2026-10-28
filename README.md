@@ -120,6 +120,16 @@ stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.was
 - When both are supplied, `--rpc-url` takes precedence over the network default. `--network` is then used only to label the output.
 - Deployed comparison requires at least one of `--network` or `--rpc-url`.
 
+### RPC Timeout
+
+Every Stellar RPC request is bounded so a stalled provider cannot hang CI. The default is 30 seconds per request; set `--rpc-timeout <SECONDS>` (1–600) to change it:
+
+```text
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet --rpc-timeout 10
+```
+
+A timeout fails the comparison with exit code `2` and `error: rpc request timed out after <N>s`. Connection failures report `could not connect to the rpc endpoint`. Transport and response errors never echo the RPC URL, so API keys embedded in it are not written to logs by this tool. `--rpc-timeout` is ignored in local `--old`/`--new` mode.
+
 ### Handling Credential-Bearing RPC URLs
 
 Some RPC providers embed an API key or token in the endpoint URL. Treat any such URL as a secret:

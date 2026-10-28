@@ -303,6 +303,68 @@ fn fail_on_rejects_unknown_values() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("--fail-on"));
 }
 
+#[test]
+fn deployed_compare_times_out_against_unresponsive_rpc() {
+    // A loopback server that accepts the connection but never answers.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let url = format!("http://{}", listener.local_addr().expect("addr"));
+    let holder = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        drop(stream);
+    });
+
+    let started = std::time::Instant::now();
+    let output = command()
+        .args([
+            "compare",
+            "--contract",
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            "--candidate",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+            "--rpc-url",
+            &url,
+            "--rpc-timeout",
+            "1",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(started.elapsed() < std::time::Duration::from_secs(4));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "error: rpc request timed out after 1s"
+    );
+    assert!(output.stdout.is_empty());
+    holder.join().expect("holder thread");
+}
+
+#[test]
+fn rpc_timeout_must_be_positive() {
+    let output = command()
+        .args([
+            "compare",
+            "--contract",
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            "--candidate",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+            "--network",
+            "testnet",
+            "--rpc-timeout",
+            "0",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--rpc-timeout"));
+}
+
 fn command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_stellar-upgrade-guard"))
 }

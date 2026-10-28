@@ -2,6 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
+    time::Duration,
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -9,8 +10,11 @@ use guard_core::{
     CompatibilityImpact, CompatibilityReport, CompatibilityResult, ContractInterface,
     compare_interfaces, compare_wasm, parse_contract_interface_file,
 };
-use guard_rpc::{Network as RpcNetwork, fetch_contract_wasm};
+use guard_rpc::{Network as RpcNetwork, fetch_contract_wasm_with_timeout};
 use serde::Serialize;
+
+/// Default per-request Stellar RPC timeout, in seconds.
+const DEFAULT_RPC_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Parser)]
 #[command(name = "stellar-upgrade-guard")]
@@ -56,6 +60,15 @@ enum Command {
         /// Explicit Stellar RPC endpoint. Overrides the network default when supplied.
         #[arg(long)]
         rpc_url: Option<String>,
+
+        /// Seconds each Stellar RPC request may take before the comparison fails with exit code 2.
+        /// Only used for deployed comparison.
+        #[arg(
+            long,
+            default_value_t = DEFAULT_RPC_TIMEOUT_SECS,
+            value_parser = clap::value_parser!(u64).range(1..=600)
+        )]
+        rpc_timeout: u64,
 
         /// Output format.
         #[arg(long, default_value = "text")]
@@ -134,11 +147,20 @@ async fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             candidate,
             network,
             rpc_url,
+            rpc_timeout,
             format,
             fail_on,
         } => {
             run_compare(
-                old, new, contract, candidate, network, rpc_url, format, fail_on,
+                old,
+                new,
+                contract,
+                candidate,
+                network,
+                rpc_url,
+                Duration::from_secs(rpc_timeout),
+                format,
+                fail_on,
             )
             .await
         }
@@ -153,6 +175,7 @@ async fn run_compare(
     candidate: Option<PathBuf>,
     network: Option<Network>,
     rpc_url: Option<String>,
+    rpc_timeout: Duration,
     format: OutputFormat,
     fail_on: FailOn,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
@@ -173,7 +196,8 @@ async fn run_compare(
             network,
             rpc_url,
         } => {
-            let deployed = fetch_contract_wasm(&rpc_url, &contract).await?;
+            let deployed =
+                fetch_contract_wasm_with_timeout(&rpc_url, &contract, rpc_timeout).await?;
             let candidate_wasm = fs::read(&candidate)?;
             let report = compare_wasm(&deployed.wasm, &candidate_wasm)?;
             match format {
