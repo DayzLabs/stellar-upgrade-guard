@@ -101,24 +101,47 @@ enum Network {
     Mainnet,
 }
 
+/// Version of the `compare --format json` document layout. Increment only for changes that can
+/// break existing consumers; adding fields does not require a new version.
+const COMPARE_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// The `compare --format json` document, identical in shape for local and deployed comparison.
 #[derive(Serialize)]
-struct DeployedCompareJson<'a> {
-    source: DeployedCompareSource<'a>,
+struct CompareJson<'a> {
+    schema_version: u32,
+    source: CompareSource<'a>,
     result: CompatibilityResult,
     summary: &'a guard_core::CompatibilitySummary,
     findings: &'a [guard_core::CompatibilityFinding],
 }
 
-#[derive(Serialize)]
-struct DeployedCompareSource<'a> {
-    kind: &'static str,
-    contract_id: &'a str,
-    network: Option<&'static str>,
-    candidate: &'a str,
-    wasm_hash: &'a str,
-    last_modified_ledger: Option<u32>,
+impl<'a> CompareJson<'a> {
+    fn new(source: CompareSource<'a>, report: &'a CompatibilityReport) -> Self {
+        Self {
+            schema_version: COMPARE_JSON_SCHEMA_VERSION,
+            source,
+            result: report.result,
+            summary: &report.summary,
+            findings: &report.findings,
+        }
+    }
 }
 
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CompareSource<'a> {
+    LocalFiles {
+        old: &'a str,
+        new: &'a str,
+    },
+    DeployedContract {
+        contract_id: &'a str,
+        network: Option<&'static str>,
+        candidate: &'a str,
+        wasm_hash: &'a str,
+        last_modified_ledger: Option<u32>,
+    },
+}
 #[tokio::main]
 async fn main() -> ExitCode {
     match run().await {
@@ -186,7 +209,17 @@ async fn run_compare(
             let report = compare_interfaces(&old_interface, &new_interface);
             match format {
                 OutputFormat::Text => print_compare_text(&old, &new, &report),
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+                OutputFormat::Json => {
+                    let (old, new) = (old.display().to_string(), new.display().to_string());
+                    let source = CompareSource::LocalFiles {
+                        old: &old,
+                        new: &new,
+                    };
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&CompareJson::new(source, &report))?
+                    );
+                }
             }
             Ok(compare_exit_code(&report, fail_on))
         }
@@ -206,20 +239,14 @@ async fn run_compare(
                 }
                 OutputFormat::Json => {
                     let candidate = candidate.display().to_string();
-                    let source = DeployedCompareSource {
-                        kind: "deployed_contract",
+                    let source = CompareSource::DeployedContract {
                         contract_id: &contract,
                         network: network.map(Network::name),
                         candidate: &candidate,
                         wasm_hash: &deployed.wasm_hash_hex,
                         last_modified_ledger: deployed.last_modified_ledger,
                     };
-                    let body = DeployedCompareJson {
-                        source,
-                        result: report.result,
-                        summary: &report.summary,
-                        findings: &report.findings,
-                    };
+                    let body = CompareJson::new(source, &report);
                     println!("{}", serde_json::to_string_pretty(&body)?);
                 }
             }

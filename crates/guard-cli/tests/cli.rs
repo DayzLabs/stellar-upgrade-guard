@@ -303,6 +303,196 @@ fn fail_on_rejects_unknown_values() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("--fail-on"));
 }
 
+const COMPARE_JSON_KEYS: [&str; 5] = ["findings", "result", "schema_version", "source", "summary"];
+
+fn sorted_keys(value: &serde_json::Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("json object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// Serves `bodies` as sequential JSON responses, one per connection, on a loopback port.
+fn stub_rpc(bodies: Vec<String>) -> String {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let url = format!("http://{}", listener.local_addr().expect("addr"));
+    std::thread::spawn(move || {
+        for body in bodies {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            let body_start = loop {
+                let read = stream.read(&mut chunk).expect("read request");
+                request.extend_from_slice(&chunk[..read]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+            let length = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            while request.len() < body_start + length {
+                let read = stream.read(&mut chunk).expect("read body");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write reply");
+        }
+    });
+    url
+}
+
+fn ledger_entries_body(xdr: String) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "latestLedger": 100,
+            "entries": [{ "xdr": xdr, "lastModifiedLedger": 42 }]
+        }
+    })
+    .to_string()
+}
+
+#[test]
+fn local_json_report_has_the_unified_schema() {
+    let old = fixture("fixtures/phase2/breaking-return-type-changed/old.wasm");
+    let new = fixture("fixtures/phase2/breaking-return-type-changed/new.wasm");
+    let output = command()
+        .args([
+            "compare",
+            "--old",
+            old.to_str().unwrap(),
+            "--new",
+            new.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(sorted_keys(&json), COMPARE_JSON_KEYS);
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(sorted_keys(&json["source"]), ["kind", "new", "old"]);
+    assert_eq!(json["source"]["kind"], "local_files");
+    assert_eq!(json["source"]["old"], old.display().to_string());
+    assert_eq!(json["source"]["new"], new.display().to_string());
+    assert_eq!(
+        sorted_keys(&json["summary"]),
+        ["breaking", "compatible", "unknown", "warning"]
+    );
+    assert_eq!(json["result"], "breaking");
+    assert_eq!(
+        sorted_keys(&json["findings"][0]),
+        [
+            "code",
+            "impact",
+            "message",
+            "new_value",
+            "old_value",
+            "path"
+        ]
+    );
+}
+
+#[test]
+fn deployed_json_report_has_the_same_top_level_schema_as_local() {
+    use stellar_xdr::{
+        BytesM, ContractCodeEntry, ContractCodeEntryExt, ContractDataDurability, ContractDataEntry,
+        ContractExecutable, ContractId, ExtensionPoint, Hash, LedgerEntryData, ScAddress,
+        ScContractInstance, ScVal,
+    };
+
+    let deployed_wasm = std::fs::read(fixture(
+        "fixtures/phase2/breaking-return-type-changed/old.wasm",
+    ))
+    .expect("read fixture");
+    let hash = [7_u8; 32];
+    let instance = LedgerEntryData::ContractData(ContractDataEntry {
+        ext: ExtensionPoint::V0,
+        contract: ScAddress::Contract(ContractId(Hash([1; 32]))),
+        key: ScVal::LedgerKeyContractInstance,
+        durability: ContractDataDurability::Persistent,
+        val: ScVal::ContractInstance(ScContractInstance {
+            executable: ContractExecutable::Wasm(Hash(hash)),
+            storage: None,
+        }),
+    })
+    .to_xdr_base64(Limits::none())
+    .expect("instance xdr");
+    let code = LedgerEntryData::ContractCode(ContractCodeEntry {
+        ext: ContractCodeEntryExt::V0,
+        hash: Hash(hash),
+        code: BytesM::try_from(deployed_wasm).expect("bounded wasm"),
+    })
+    .to_xdr_base64(Limits::none())
+    .expect("code xdr");
+    let url = stub_rpc(vec![
+        ledger_entries_body(instance),
+        ledger_entries_body(code),
+    ]);
+
+    let candidate = fixture("fixtures/phase2/breaking-return-type-changed/new.wasm");
+    let output = command()
+        .args([
+            "compare",
+            "--contract",
+            "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+            "--candidate",
+            candidate.to_str().unwrap(),
+            "--network",
+            "testnet",
+            "--rpc-url",
+            &url,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(sorted_keys(&json), COMPARE_JSON_KEYS);
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(
+        sorted_keys(&json["source"]),
+        [
+            "candidate",
+            "contract_id",
+            "kind",
+            "last_modified_ledger",
+            "network",
+            "wasm_hash"
+        ]
+    );
+    assert_eq!(json["source"]["kind"], "deployed_contract");
+    assert_eq!(json["source"]["network"], "testnet");
+    assert_eq!(json["source"]["wasm_hash"], "07".repeat(32));
+    assert_eq!(json["source"]["last_modified_ledger"], 42);
+    assert_eq!(json["result"], "breaking");
+    assert_eq!(json["findings"][0]["code"], "return_type_changed");
+}
+
 #[test]
 fn deployed_compare_times_out_against_unresponsive_rpc() {
     // A loopback server that accepts the connection but never answers.

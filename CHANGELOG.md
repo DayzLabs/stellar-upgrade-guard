@@ -8,7 +8,7 @@ This project follows Keep a Changelog style and intends to use Semantic Versioni
 
 ### Added
 
-- No changes yet.
+- `compare --format json` now emits `schema_version` and a `source` object in both local and deployed modes, so both share one document shape. The change is additive; see [docs/JSON_OUTPUT.md](docs/JSON_OUTPUT.md).
 
 ## [0.1.0] - 2026-10-09
 

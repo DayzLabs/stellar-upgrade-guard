@@ -53,7 +53,7 @@ stellar-upgrade-guard inspect path/to/contract.wasm --format json
 stellar-upgrade-guard compare --old old.wasm --new new.wasm
 ```
 
-For JSON:
+For JSON (the same document shape is used for deployed comparison; see [docs/JSON_OUTPUT.md](docs/JSON_OUTPUT.md)):
 
 ```text
 stellar-upgrade-guard compare --old old.wasm --new new.wasm --format json
