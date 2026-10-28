@@ -156,9 +156,25 @@ The action preserves CLI exit behavior and fails workflows on exit `1` or `2`. S
 
 ## Exit Codes
 
-- `0`: no breaking or unknown findings;
-- `1`: breaking or unknown findings detected;
+- `0`: no finding at or above the `--fail-on` threshold;
+- `1`: at least one finding at or above the `--fail-on` threshold;
 - `2`: input, parsing, RPC, or tool failure.
+
+### Choosing What Fails The Build
+
+`--fail-on` sets the lowest finding severity that produces exit code `1`. Each level also fails on every more severe level:
+
+| `--fail-on` | Exit `1` when the report contains |
+| --- | --- |
+| `breaking` | breaking findings |
+| `unknown` (default) | breaking or unknown findings |
+| `warning` | breaking, unknown, or warning findings |
+
+```text
+stellar-upgrade-guard compare --old old.wasm --new new.wasm --fail-on breaking
+```
+
+The default, `unknown`, matches the behavior of `v0.1.0`. Use `--fail-on breaking` when `unknown` findings (for example an added struct field) should be reported but not block a merge. The report itself is unchanged by this option: findings, counts, and the `result` field always reflect the full comparison.
 
 ## Current Rule Coverage
 

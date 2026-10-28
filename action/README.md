@@ -18,6 +18,10 @@ Deployed contract mode:
 - `network`: Stellar network, such as `testnet`.
 - `rpc-url`: optional explicit Stellar RPC URL.
 
+Both modes:
+
+- `fail-on`: optional. Lowest finding severity that fails the step: `breaking`, `unknown` (default), or `warning`. See the CLI `--fail-on` option in the main README. Invalid values fail the step with exit code `2`.
+
 Local WASM inputs are mutually exclusive with deployed contract inputs. Deployed mode requires `contract-id` and `candidate-wasm`, plus either `network` or `rpc-url`.
 
 ## Examples
@@ -52,11 +56,11 @@ For mainnet or private RPC providers, pass `rpc-url`. Do not include credentials
 
 The action preserves CLI exit semantics:
 
-- `0`: no breaking or unknown findings;
-- `1`: breaking or unknown findings detected;
+- `0`: no finding at or above the `fail-on` threshold (default `unknown`);
+- `1`: at least one finding at or above the `fail-on` threshold;
 - `2`: input, parsing, RPC, or tool failure.
 
-GitHub Actions marks the step failed for exit codes `1` and `2`. Breaking findings are not downgraded to warnings.
+GitHub Actions marks the step failed for exit codes `1` and `2`. Breaking findings always fail the step at every `fail-on` level; `fail-on` can only choose whether less severe findings also fail it.
 
 ## Step Summary
 

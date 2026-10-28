@@ -60,6 +60,12 @@ enum Command {
         /// Output format.
         #[arg(long, default_value = "text")]
         format: OutputFormat,
+
+        /// Lowest finding severity that produces exit code 1. Each level also fails on every
+        /// more severe level: `warning` fails on warning, unknown, and breaking findings;
+        /// `unknown` on unknown and breaking; `breaking` only on breaking.
+        #[arg(long, value_enum, default_value = "unknown")]
+        fail_on: FailOn,
     },
 }
 
@@ -67,6 +73,13 @@ enum Command {
 enum OutputFormat {
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+enum FailOn {
+    Breaking,
+    Unknown,
+    Warning,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -122,10 +135,17 @@ async fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             network,
             rpc_url,
             format,
-        } => run_compare(old, new, contract, candidate, network, rpc_url, format).await,
+            fail_on,
+        } => {
+            run_compare(
+                old, new, contract, candidate, network, rpc_url, format, fail_on,
+            )
+            .await
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_compare(
     old: Option<PathBuf>,
     new: Option<PathBuf>,
@@ -134,6 +154,7 @@ async fn run_compare(
     network: Option<Network>,
     rpc_url: Option<String>,
     format: OutputFormat,
+    fail_on: FailOn,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
     match compare_mode(old, new, contract, candidate, network, rpc_url)? {
         CompareMode::Local { old, new } => {
@@ -144,7 +165,7 @@ async fn run_compare(
                 OutputFormat::Text => print_compare_text(&old, &new, &report),
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
             }
-            Ok(compare_exit_code(report.result))
+            Ok(compare_exit_code(&report, fail_on))
         }
         CompareMode::Deployed {
             contract,
@@ -178,7 +199,7 @@ async fn run_compare(
                     println!("{}", serde_json::to_string_pretty(&body)?);
                 }
             }
-            Ok(compare_exit_code(report.result))
+            Ok(compare_exit_code(&report, fail_on))
         }
     }
 }
@@ -418,9 +439,16 @@ fn print_findings(title: &str, impact: CompatibilityImpact, report: &Compatibili
     }
 }
 
-fn compare_exit_code(result: CompatibilityResult) -> ExitCode {
-    match result {
-        CompatibilityResult::Compatible | CompatibilityResult::Warning => ExitCode::SUCCESS,
-        CompatibilityResult::Breaking | CompatibilityResult::Unknown => ExitCode::from(1),
+fn compare_exit_code(report: &CompatibilityReport, fail_on: FailOn) -> ExitCode {
+    let summary = &report.summary;
+    let failing = match fail_on {
+        FailOn::Breaking => summary.breaking,
+        FailOn::Unknown => summary.breaking + summary.unknown,
+        FailOn::Warning => summary.breaking + summary.unknown + summary.warning,
+    };
+    if failing > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }

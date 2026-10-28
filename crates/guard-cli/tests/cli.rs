@@ -179,6 +179,130 @@ fn mainnet_deployed_compare_requires_rpc_url() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("requires --rpc-url"));
 }
 
+/// Writes an old/new WASM pair whose comparison yields exactly one finding of the named severity.
+fn severity_pair(severity: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("old.wasm");
+    let new = dir.path().join("new.wasm");
+    let (old_spec, new_spec) = match severity {
+        // A struct appearing in the new interface is a `warning` finding.
+        "warning" => (
+            Vec::new(),
+            struct_spec_xdr(vec![field("id", ScSpecTypeDef::U32)]),
+        ),
+        // A struct field added is an `unknown` finding.
+        "unknown" => (
+            struct_spec_xdr(vec![field("id", ScSpecTypeDef::U32)]),
+            struct_spec_xdr(vec![
+                field("id", ScSpecTypeDef::U32),
+                field("status", ScSpecTypeDef::U32),
+            ]),
+        ),
+        // A struct field type change is a `breaking` finding.
+        "breaking" => (
+            struct_spec_xdr(vec![field("id", ScSpecTypeDef::U32)]),
+            struct_spec_xdr(vec![field("id", ScSpecTypeDef::U64)]),
+        ),
+        other => panic!("unknown severity {other}"),
+    };
+    std::fs::write(&old, wasm_with_contract_spec(&old_spec)).expect("write old wasm");
+    std::fs::write(&new, wasm_with_contract_spec(&new_spec)).expect("write new wasm");
+    (dir, old, new)
+}
+
+fn exit_code_for(severity: &str, fail_on: Option<&str>) -> Option<i32> {
+    let (_dir, old, new) = severity_pair(severity);
+    let mut args = vec![
+        "compare".to_owned(),
+        "--old".to_owned(),
+        old.to_str().unwrap().to_owned(),
+        "--new".to_owned(),
+        new.to_str().unwrap().to_owned(),
+    ];
+    if let Some(fail_on) = fail_on {
+        args.push("--fail-on".to_owned());
+        args.push(fail_on.to_owned());
+    }
+    command()
+        .args(args)
+        .output()
+        .expect("compare command runs")
+        .status
+        .code()
+}
+
+#[test]
+fn fail_on_thresholds_map_severity_to_exit_codes() {
+    // (finding severity, --fail-on value, expected exit code)
+    let cases = [
+        ("warning", "breaking", 0),
+        ("warning", "unknown", 0),
+        ("warning", "warning", 1),
+        ("unknown", "breaking", 0),
+        ("unknown", "unknown", 1),
+        ("unknown", "warning", 1),
+        ("breaking", "breaking", 1),
+        ("breaking", "unknown", 1),
+        ("breaking", "warning", 1),
+    ];
+    for (severity, fail_on, expected) in cases {
+        assert_eq!(
+            exit_code_for(severity, Some(fail_on)),
+            Some(expected),
+            "{severity} finding with --fail-on {fail_on}"
+        );
+    }
+}
+
+#[test]
+fn fail_on_defaults_to_unknown() {
+    assert_eq!(exit_code_for("warning", None), Some(0));
+    assert_eq!(exit_code_for("unknown", None), Some(1));
+    assert_eq!(exit_code_for("breaking", None), Some(1));
+}
+
+#[test]
+fn fail_on_warning_does_not_fail_compatible_changes() {
+    let output = command()
+        .args([
+            "compare",
+            "--old",
+            fixture("fixtures/phase2/compatible-function-added/old.wasm")
+                .to_str()
+                .unwrap(),
+            "--new",
+            fixture("fixtures/phase2/compatible-function-added/new.wasm")
+                .to_str()
+                .unwrap(),
+            "--fail-on",
+            "warning",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn fail_on_rejects_unknown_values() {
+    let (_dir, old, new) = severity_pair("warning");
+    let output = command()
+        .args([
+            "compare",
+            "--old",
+            old.to_str().unwrap(),
+            "--new",
+            new.to_str().unwrap(),
+            "--fail-on",
+            "compatible",
+        ])
+        .output()
+        .expect("compare command runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--fail-on"));
+}
+
 fn command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_stellar-upgrade-guard"))
 }
