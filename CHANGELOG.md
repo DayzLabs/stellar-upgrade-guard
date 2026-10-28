@@ -8,8 +8,14 @@ This project follows Keep a Changelog style and intends to use Semantic Versioni
 
 ### Added
 
+- `compare --fail-on {breaking|unknown|warning}` and the Action input `fail-on` choose the lowest finding severity that exits `1`. The default, `unknown`, keeps the `v0.1.0` behavior.
+- `compare --rpc-timeout <SECONDS>` (1–600, default 30) bounds each Stellar RPC request. Previously requests had no timeout. Timeouts and connection failures are reported as distinct errors (exit `2`).
 - `contractenvmetav0` support: the env interface version (`protocol`, `pre_release`) is read, shown by `inspect` (text and JSON `env_meta` field), and compared. A change, or metadata present on only one side or undecodable, is reported as an `unknown` finding (`env_interface_version_changed`, `env_meta_unavailable`). Contracts rebuilt with a newer SDK/protocol therefore now produce an `unknown` result; pass `--fail-on breaking` to report without failing.
 - `compare --format json` now emits `schema_version` and a `source` object in both local and deployed modes, so both share one document shape. The change is additive; see [docs/JSON_OUTPUT.md](docs/JSON_OUTPUT.md).
+
+### Changed
+
+- RPC transport and response errors no longer include the request URL, so provider API keys embedded in `--rpc-url` are not written to stderr or CI logs by this tool.
 
 ## [0.1.0] - 2026-10-09
 
