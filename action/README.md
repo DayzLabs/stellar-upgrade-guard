@@ -62,6 +62,15 @@ GitHub Actions marks the step failed for exit codes `1` and `2`. Breaking findin
 
 When `$GITHUB_STEP_SUMMARY` is available, the action writes a compact summary with result and finding counts.
 
+## Local Renderer Tests
+
+The renderer's valid, malformed JSON, empty JSON, exit-status, and stderr redaction paths can be tested without
+network access:
+
+```bash
+python action/test_render_result.py
+```
+
 ## Limitations
 
 This action compares contract interface metadata. It does not prove storage migration safety, runtime behavior, authorization behavior, deployment safety, or upgrade safety.
