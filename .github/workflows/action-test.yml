@@ -63,3 +63,35 @@ jobs:
           test "${{ steps.breaking.outcome }}" = "failure"
           test "${{ steps.breaking.outputs.result }}" = "breaking"
           test "${{ steps.breaking.outputs.breaking-count }}" = "1"
+
+      - name: Compatible comparison passes with strictest fail-on
+        id: fail-on-warning
+        uses: ./action
+        with:
+          old-wasm: fixtures/phase2/compatible-function-added/old.wasm
+          new-wasm: fixtures/phase2/compatible-function-added/new.wasm
+          fail-on: warning
+
+      - name: Breaking comparison still fails with loosest fail-on
+        id: fail-on-breaking
+        continue-on-error: true
+        uses: ./action
+        with:
+          old-wasm: fixtures/phase2/breaking-return-type-changed/old.wasm
+          new-wasm: fixtures/phase2/breaking-return-type-changed/new.wasm
+          fail-on: breaking
+
+      - name: Invalid fail-on value fails
+        id: fail-on-invalid
+        continue-on-error: true
+        uses: ./action
+        with:
+          old-wasm: fixtures/phase2/compatible-function-added/old.wasm
+          new-wasm: fixtures/phase2/compatible-function-added/new.wasm
+          fail-on: compatible
+
+      - name: Check fail-on outcomes
+        run: |
+          test "${{ steps.fail-on-warning.outcome }}" = "success"
+          test "${{ steps.fail-on-breaking.outcome }}" = "failure"
+          test "${{ steps.fail-on-invalid.outcome }}" = "failure"

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use stellar_xdr::{
@@ -20,6 +22,10 @@ pub struct DeployedContract {
 pub enum RpcError {
     #[error("invalid contract id `{0}`")]
     InvalidContractId(String),
+    #[error("rpc request timed out after {0:?}")]
+    Timeout(Duration),
+    #[error("could not connect to the rpc endpoint")]
+    Connect,
     #[error("rpc transport error: {0}")]
     Transport(String),
     #[error("rpc returned error {code}: {message}")]
@@ -73,17 +79,55 @@ pub trait LedgerEntriesClient {
     ) -> Result<GetLedgerEntriesResult, RpcError>;
 }
 
+/// Default total time allowed for one RPC request, including reading the response body.
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Upper bound on the time allowed to establish a connection.
+const MAX_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct HttpRpcClient {
     rpc_url: String,
     client: reqwest::Client,
+    timeout: Duration,
 }
 
 impl HttpRpcClient {
+    /// Creates a client with [`DEFAULT_REQUEST_TIMEOUT`].
     #[must_use]
     pub fn new(rpc_url: impl Into<String>) -> Self {
+        Self::with_timeout(rpc_url, DEFAULT_REQUEST_TIMEOUT)
+    }
+
+    /// Creates a client whose requests fail with [`RpcError::Timeout`] after `timeout`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying HTTP client cannot be constructed, which only happens when the
+    /// TLS backend fails to initialize.
+    #[must_use]
+    pub fn with_timeout(rpc_url: impl Into<String>, timeout: Duration) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .connect_timeout(timeout.min(MAX_CONNECT_TIMEOUT))
+            .build()
+            .expect("http client builds");
         Self {
             rpc_url: rpc_url.into(),
-            client: reqwest::Client::new(),
+            client,
+            timeout,
+        }
+    }
+
+    /// Maps a reqwest failure to a typed error. The request URL is dropped because RPC
+    /// providers may embed credentials in it.
+    fn map_error(&self, err: reqwest::Error) -> RpcError {
+        let err = err.without_url();
+        if err.is_timeout() {
+            RpcError::Timeout(self.timeout)
+        } else if err.is_connect() {
+            RpcError::Connect
+        } else {
+            RpcError::Transport(err.to_string())
         }
     }
 }
@@ -106,22 +150,39 @@ impl LedgerEntriesClient for HttpRpcClient {
             .json(&request)
             .send()
             .await
-            .map_err(|err| RpcError::Transport(err.to_string()))?
+            .map_err(|err| self.map_error(err))?
             .error_for_status()
-            .map_err(|err| RpcError::Transport(err.to_string()))?;
+            .map_err(|err| self.map_error(err))?;
         let body = response
             .json::<JsonRpcResponse<GetLedgerEntriesResult>>()
             .await
-            .map_err(|err| RpcError::MalformedResponse(err.to_string()))?;
+            .map_err(|err| {
+                if err.is_timeout() {
+                    RpcError::Timeout(self.timeout)
+                } else {
+                    RpcError::MalformedResponse(err.without_url().to_string())
+                }
+            })?;
         body.into_result()
     }
 }
 
+/// Fetches a deployed contract's WASM using [`DEFAULT_REQUEST_TIMEOUT`].
 pub async fn fetch_contract_wasm(
     rpc_url: &str,
     contract_id: &str,
 ) -> Result<DeployedContract, RpcError> {
-    fetch_contract_wasm_with_client(&HttpRpcClient::new(rpc_url), contract_id).await
+    fetch_contract_wasm_with_timeout(rpc_url, contract_id, DEFAULT_REQUEST_TIMEOUT).await
+}
+
+/// Fetches a deployed contract's WASM. Each RPC request is bounded by `timeout`.
+pub async fn fetch_contract_wasm_with_timeout(
+    rpc_url: &str,
+    contract_id: &str,
+    timeout: Duration,
+) -> Result<DeployedContract, RpcError> {
+    fetch_contract_wasm_with_client(&HttpRpcClient::with_timeout(rpc_url, timeout), contract_id)
+        .await
 }
 
 pub async fn fetch_contract_wasm_with_client(
@@ -408,6 +469,181 @@ mod tests {
         };
         assert_eq!(contract_data.key, ScVal::LedgerKeyContractInstance);
         assert_eq!(contract_data.durability, ContractDataDurability::Persistent);
+    }
+
+    #[tokio::test]
+    async fn reports_code_hash_mismatch() {
+        let client = MockClient::new(vec![
+            Ok(result_with_xdr(contract_data_xdr(
+                ContractExecutable::Wasm(Hash([7; 32])),
+            ))),
+            Ok(result_with_xdr(contract_code_xdr(
+                [9; 32],
+                b"\0asm-test".to_vec(),
+            ))),
+        ]);
+
+        let err = fetch_contract_wasm_with_client(&client, CONTRACT_ID)
+            .await
+            .expect_err("mismatched hash fails");
+
+        assert!(matches!(err, RpcError::ContractCodeHashMismatch));
+    }
+
+    #[tokio::test]
+    async fn reports_unexpected_ledger_entry_type() {
+        let client = MockClient::new(vec![Ok(result_with_xdr(contract_code_xdr(
+            [7; 32],
+            b"\0asm-test".to_vec(),
+        )))]);
+
+        let err = fetch_contract_wasm_with_client(&client, CONTRACT_ID)
+            .await
+            .expect_err("wrong entry type fails");
+
+        assert!(matches!(
+            err,
+            RpcError::UnexpectedLedgerEntry {
+                expected: "ContractData",
+                actual: "ContractCode"
+            }
+        ));
+    }
+
+    // The tests below talk to a throwaway server bound to 127.0.0.1; they never leave the host.
+
+    /// Accepts one connection, reads the full request, then either answers with the given
+    /// status and body or, when `reply` is `None`, holds the connection open without answering.
+    fn stub_server(reply: Option<(u16, &'static str)>) -> String {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            let body_start = loop {
+                let read = stream.read(&mut chunk).expect("read request");
+                request.extend_from_slice(&chunk[..read]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+            let length = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            while request.len() < body_start + length {
+                let read = stream.read(&mut chunk).expect("read body");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            match reply {
+                Some((status, body)) => {
+                    let response = format!(
+                        "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    stream.write_all(response.as_bytes()).expect("write reply");
+                }
+                None => std::thread::sleep(Duration::from_secs(5)),
+            }
+        });
+        url
+    }
+
+    #[tokio::test]
+    async fn times_out_when_server_never_answers() {
+        let url = stub_server(None);
+        let client = HttpRpcClient::with_timeout(url, Duration::from_millis(300));
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("silent server times out");
+
+        assert!(matches!(err, RpcError::Timeout(d) if d == Duration::from_millis(300)));
+        assert_eq!(err.to_string(), "rpc request timed out after 300ms");
+    }
+
+    #[tokio::test]
+    async fn reports_connection_failure() {
+        // Reserve a free port, then close it so nothing is listening there.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        drop(listener);
+        let client = HttpRpcClient::with_timeout(url, Duration::from_secs(5));
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("closed port fails");
+
+        assert!(matches!(err, RpcError::Connect), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn reports_malformed_json_response() {
+        let url = stub_server(Some((200, "this is not json")));
+        let client = HttpRpcClient::new(url);
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("non-json body fails");
+
+        assert!(matches!(err, RpcError::MalformedResponse(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn reports_response_without_result_or_error() {
+        let url = stub_server(Some((200, r#"{"jsonrpc":"2.0","id":1}"#)));
+        let client = HttpRpcClient::new(url);
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("empty response fails");
+
+        assert!(matches!(err, RpcError::MalformedResponse(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn surfaces_json_rpc_error_responses() {
+        let url = stub_server(Some((
+            200,
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad request"}}"#,
+        )));
+        let client = HttpRpcClient::new(url);
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("rpc error fails");
+
+        assert!(matches!(
+            err,
+            RpcError::RpcReturned { code: -32600, ref message } if message == "bad request"
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_status_errors_do_not_leak_credentials_from_the_url() {
+        let url = stub_server(Some((500, "{}")));
+        let client = HttpRpcClient::new(format!("{url}/rpc?api_key=SECRET-VALUE"));
+
+        let err = client
+            .get_ledger_entries(Vec::new())
+            .await
+            .expect_err("500 fails");
+
+        assert!(matches!(err, RpcError::Transport(_)), "got {err:?}");
+        let message = err.to_string();
+        assert!(!message.contains("SECRET-VALUE"), "leaked: {message}");
+        assert!(!message.contains("127.0.0.1"), "leaked: {message}");
     }
 
     fn result_with_xdr(xdr: String) -> GetLedgerEntriesResult {

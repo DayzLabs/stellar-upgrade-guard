@@ -53,7 +53,7 @@ stellar-upgrade-guard inspect path/to/contract.wasm --format json
 stellar-upgrade-guard compare --old old.wasm --new new.wasm
 ```
 
-For JSON:
+For JSON (the same document shape is used for deployed comparison; see [docs/JSON_OUTPUT.md](docs/JSON_OUTPUT.md)):
 
 ```text
 stellar-upgrade-guard compare --old old.wasm --new new.wasm --format json
@@ -120,6 +120,16 @@ stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.was
 - When both are supplied, `--rpc-url` takes precedence over the network default. `--network` is then used only to label the output.
 - Deployed comparison requires at least one of `--network` or `--rpc-url`.
 
+### RPC Timeout
+
+Every Stellar RPC request is bounded so a stalled provider cannot hang CI. The default is 30 seconds per request; set `--rpc-timeout <SECONDS>` (1–600) to change it:
+
+```text
+stellar-upgrade-guard compare --contract <CONTRACT_ID> --candidate candidate.wasm --network testnet --rpc-timeout 10
+```
+
+A timeout fails the comparison with exit code `2` and `error: rpc request timed out after <N>s`. Connection failures report `could not connect to the rpc endpoint`. Transport and response errors never echo the RPC URL, so API keys embedded in it are not written to logs by this tool. `--rpc-timeout` is ignored in local `--old`/`--new` mode.
+
 ### Handling Credential-Bearing RPC URLs
 
 Some RPC providers embed an API key or token in the endpoint URL. Treat any such URL as a secret:
@@ -156,9 +166,25 @@ The action preserves CLI exit behavior and fails workflows on exit `1` or `2`. S
 
 ## Exit Codes
 
-- `0`: no breaking or unknown findings;
-- `1`: breaking or unknown findings detected;
+- `0`: no finding at or above the `--fail-on` threshold;
+- `1`: at least one finding at or above the `--fail-on` threshold;
 - `2`: input, parsing, RPC, or tool failure.
+
+### Choosing What Fails The Build
+
+`--fail-on` sets the lowest finding severity that produces exit code `1`. Each level also fails on every more severe level:
+
+| `--fail-on` | Exit `1` when the report contains |
+| --- | --- |
+| `breaking` | breaking findings |
+| `unknown` (default) | breaking or unknown findings |
+| `warning` | breaking, unknown, or warning findings |
+
+```text
+stellar-upgrade-guard compare --old old.wasm --new new.wasm --fail-on breaking
+```
+
+The default, `unknown`, matches the behavior of `v0.1.0`. Use `--fail-on breaking` when `unknown` findings (for example an added struct field) should be reported but not block a merge. The report itself is unchanged by this option: findings, counts, and the `result` field always reflect the full comparison.
 
 ## Current Rule Coverage
 

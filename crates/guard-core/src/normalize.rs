@@ -4,7 +4,7 @@ use stellar_xdr::{
 };
 
 use crate::model::{
-    ContractInterface, EnumCase, EnumSpec, ErrorCase, ErrorSpec, EventParam, EventSpec,
+    ContractInterface, EnumCase, EnumSpec, EnvMeta, ErrorCase, ErrorSpec, EventParam, EventSpec,
     FunctionInput, FunctionSpec, StructField, StructSpec, TypeRef, UnionCase, UnionSpec,
 };
 
@@ -16,6 +16,7 @@ pub fn normalize_entries(entries: Vec<ScSpecEntry>) -> ContractInterface {
         unions: Vec::new(),
         errors: Vec::new(),
         events: Vec::new(),
+        env_meta: EnvMeta::Absent,
     };
 
     for entry in entries {

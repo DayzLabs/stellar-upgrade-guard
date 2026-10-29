@@ -47,7 +47,8 @@ Phase 2 status: implemented local compatibility rules. These rules compare norma
 | Metadata added | Warning | Medium | Metadata is off-chain informational/build data unless a policy declares a key meaningful. |
 | Metadata removed | Warning | Medium | May affect provenance, verification, or release workflows but not callable interface. |
 | Metadata value changed | Warning | Medium | Version/build metadata changes are expected across releases; policy can later escalate selected keys. |
-| Env meta/interface version changed | Warning or Unknown | Medium | May indicate network compatibility differences rather than interface incompatibility. Should be surfaced prominently. |
+| Env interface version changed (`contractenvmetav0`) | Unknown | Medium | The interface version (`protocol`, `pre_release`) names the host environment the contract was built against. Whether a version runs on a network depends on that network's protocol, which this tool does not know, so a difference is surfaced as `Unknown` rather than guessed at. Implemented. |
+| Env metadata absent on one side, or undecodable | Unknown | Medium | The two versions cannot be compared. A section that cannot be decoded with the bundled XDR is reported, not treated as a failure. Implemented. |
 | Event added | Unknown | Medium | Event consumers and indexers may care about emitted shapes; Phase 2.5 does not claim safety. |
 | Event removed | Unknown | Medium | Event consumers and indexers may rely on removed event shapes. |
 | Event renamed | Unknown | Medium | Event consumers may rely on name/prefix topics. |
@@ -83,6 +84,7 @@ The engine currently implements:
 - error case removed: `Unknown`;
 - error code changed: `Breaking`;
 - event added/removed/parameter changed/data format changed: `Unknown`;
+- env interface version changed, or env metadata present on only one side or undecodable: `Unknown`. Only the first `contractenvmetav0` section and its first entry are read. Because this makes a routine SDK/protocol upgrade `Unknown`, use `--fail-on breaking` if such changes should be reported without failing the build;
 - malformed/missing spec: execution failure, not a compatibility finding.
 
 Findings are sorted deterministically by severity, finding code, path, and message. Severity order is `Breaking`, `Unknown`, `Warning`, then `Compatible`.

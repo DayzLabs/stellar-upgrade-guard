@@ -718,6 +718,7 @@ fn empty_interface() -> ContractInterface {
         unions: vec![],
         errors: vec![],
         events: vec![],
+        env_meta: guard_core::EnvMeta::Absent,
     }
 }
 

@@ -2,15 +2,19 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
+    time::Duration,
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
 use guard_core::{
-    CompatibilityImpact, CompatibilityReport, CompatibilityResult, ContractInterface,
+    CompatibilityImpact, CompatibilityReport, CompatibilityResult, ContractInterface, EnvMeta,
     compare_interfaces, compare_wasm, parse_contract_interface_file,
 };
-use guard_rpc::{Network as RpcNetwork, fetch_contract_wasm};
+use guard_rpc::{Network as RpcNetwork, fetch_contract_wasm_with_timeout};
 use serde::Serialize;
+
+/// Default per-request Stellar RPC timeout, in seconds.
+const DEFAULT_RPC_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Parser)]
 #[command(name = "stellar-upgrade-guard")]
@@ -57,9 +61,24 @@ enum Command {
         #[arg(long)]
         rpc_url: Option<String>,
 
+        /// Seconds each Stellar RPC request may take before the comparison fails with exit code 2.
+        /// Only used for deployed comparison.
+        #[arg(
+            long,
+            default_value_t = DEFAULT_RPC_TIMEOUT_SECS,
+            value_parser = clap::value_parser!(u64).range(1..=600)
+        )]
+        rpc_timeout: u64,
+
         /// Output format.
         #[arg(long, default_value = "text")]
         format: OutputFormat,
+
+        /// Lowest finding severity that produces exit code 1. Each level also fails on every
+        /// more severe level: `warning` fails on warning, unknown, and breaking findings;
+        /// `unknown` on unknown and breaking; `breaking` only on breaking.
+        #[arg(long, value_enum, default_value = "unknown")]
+        fail_on: FailOn,
     },
 }
 
@@ -69,30 +88,60 @@ enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+enum FailOn {
+    Breaking,
+    Unknown,
+    Warning,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Network {
     Testnet,
     Mainnet,
 }
 
+/// Version of the `compare --format json` document layout. Increment only for changes that can
+/// break existing consumers; adding fields does not require a new version.
+const COMPARE_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// The `compare --format json` document, identical in shape for local and deployed comparison.
 #[derive(Serialize)]
-struct DeployedCompareJson<'a> {
-    source: DeployedCompareSource<'a>,
+struct CompareJson<'a> {
+    schema_version: u32,
+    source: CompareSource<'a>,
     result: CompatibilityResult,
     summary: &'a guard_core::CompatibilitySummary,
     findings: &'a [guard_core::CompatibilityFinding],
 }
 
-#[derive(Serialize)]
-struct DeployedCompareSource<'a> {
-    kind: &'static str,
-    contract_id: &'a str,
-    network: Option<&'static str>,
-    candidate: &'a str,
-    wasm_hash: &'a str,
-    last_modified_ledger: Option<u32>,
+impl<'a> CompareJson<'a> {
+    fn new(source: CompareSource<'a>, report: &'a CompatibilityReport) -> Self {
+        Self {
+            schema_version: COMPARE_JSON_SCHEMA_VERSION,
+            source,
+            result: report.result,
+            summary: &report.summary,
+            findings: &report.findings,
+        }
+    }
 }
 
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CompareSource<'a> {
+    LocalFiles {
+        old: &'a str,
+        new: &'a str,
+    },
+    DeployedContract {
+        contract_id: &'a str,
+        network: Option<&'static str>,
+        candidate: &'a str,
+        wasm_hash: &'a str,
+        last_modified_ledger: Option<u32>,
+    },
+}
 #[tokio::main]
 async fn main() -> ExitCode {
     match run().await {
@@ -121,11 +170,27 @@ async fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             candidate,
             network,
             rpc_url,
+            rpc_timeout,
             format,
-        } => run_compare(old, new, contract, candidate, network, rpc_url, format).await,
+            fail_on,
+        } => {
+            run_compare(
+                old,
+                new,
+                contract,
+                candidate,
+                network,
+                rpc_url,
+                Duration::from_secs(rpc_timeout),
+                format,
+                fail_on,
+            )
+            .await
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_compare(
     old: Option<PathBuf>,
     new: Option<PathBuf>,
@@ -133,7 +198,9 @@ async fn run_compare(
     candidate: Option<PathBuf>,
     network: Option<Network>,
     rpc_url: Option<String>,
+    rpc_timeout: Duration,
     format: OutputFormat,
+    fail_on: FailOn,
 ) -> Result<ExitCode, Box<dyn std::error::Error>> {
     match compare_mode(old, new, contract, candidate, network, rpc_url)? {
         CompareMode::Local { old, new } => {
@@ -142,9 +209,19 @@ async fn run_compare(
             let report = compare_interfaces(&old_interface, &new_interface);
             match format {
                 OutputFormat::Text => print_compare_text(&old, &new, &report),
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+                OutputFormat::Json => {
+                    let (old, new) = (old.display().to_string(), new.display().to_string());
+                    let source = CompareSource::LocalFiles {
+                        old: &old,
+                        new: &new,
+                    };
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&CompareJson::new(source, &report))?
+                    );
+                }
             }
-            Ok(compare_exit_code(report.result))
+            Ok(compare_exit_code(&report, fail_on))
         }
         CompareMode::Deployed {
             contract,
@@ -152,7 +229,8 @@ async fn run_compare(
             network,
             rpc_url,
         } => {
-            let deployed = fetch_contract_wasm(&rpc_url, &contract).await?;
+            let deployed =
+                fetch_contract_wasm_with_timeout(&rpc_url, &contract, rpc_timeout).await?;
             let candidate_wasm = fs::read(&candidate)?;
             let report = compare_wasm(&deployed.wasm, &candidate_wasm)?;
             match format {
@@ -161,24 +239,18 @@ async fn run_compare(
                 }
                 OutputFormat::Json => {
                     let candidate = candidate.display().to_string();
-                    let source = DeployedCompareSource {
-                        kind: "deployed_contract",
+                    let source = CompareSource::DeployedContract {
                         contract_id: &contract,
                         network: network.map(Network::name),
                         candidate: &candidate,
                         wasm_hash: &deployed.wasm_hash_hex,
                         last_modified_ledger: deployed.last_modified_ledger,
                     };
-                    let body = DeployedCompareJson {
-                        source,
-                        result: report.result,
-                        summary: &report.summary,
-                        findings: &report.findings,
-                    };
+                    let body = CompareJson::new(source, &report);
                     println!("{}", serde_json::to_string_pretty(&body)?);
                 }
             }
-            Ok(compare_exit_code(report.result))
+            Ok(compare_exit_code(&report, fail_on))
         }
     }
 }
@@ -265,6 +337,17 @@ fn print_text(interface: &ContractInterface) {
     print_types(interface);
     print_errors(interface);
     print_events(interface);
+    print_env_meta(interface);
+}
+
+fn print_env_meta(interface: &ContractInterface) {
+    println!();
+    println!("Env interface version:");
+    match interface.env_meta {
+        EnvMeta::Absent => println!("- none"),
+        EnvMeta::InterfaceVersion(version) => println!("- {version}"),
+        EnvMeta::Unreadable => println!("- unreadable"),
+    }
 }
 
 fn print_functions(interface: &ContractInterface) {
@@ -418,9 +501,16 @@ fn print_findings(title: &str, impact: CompatibilityImpact, report: &Compatibili
     }
 }
 
-fn compare_exit_code(result: CompatibilityResult) -> ExitCode {
-    match result {
-        CompatibilityResult::Compatible | CompatibilityResult::Warning => ExitCode::SUCCESS,
-        CompatibilityResult::Breaking | CompatibilityResult::Unknown => ExitCode::from(1),
+fn compare_exit_code(report: &CompatibilityReport, fail_on: FailOn) -> ExitCode {
+    let summary = &report.summary;
+    let failing = match fail_on {
+        FailOn::Breaking => summary.breaking,
+        FailOn::Unknown => summary.breaking + summary.unknown,
+        FailOn::Warning => summary.breaking + summary.unknown + summary.warning,
+    };
+    if failing > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }

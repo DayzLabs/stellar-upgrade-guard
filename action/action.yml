@@ -20,6 +20,9 @@ inputs:
   rpc-url:
     description: Explicit Stellar RPC URL for deployed comparison mode.
     required: false
+  fail-on:
+    description: Lowest finding severity that fails the step (breaking, unknown, or warning). Defaults to unknown.
+    required: false
 
 outputs:
   result:
@@ -58,6 +61,7 @@ runs:
         INPUT_CANDIDATE_WASM: ${{ inputs.candidate-wasm }}
         INPUT_NETWORK: ${{ inputs.network }}
         INPUT_RPC_URL: ${{ inputs.rpc-url }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set -euo pipefail
 
@@ -107,6 +111,10 @@ runs:
         else
           echo "error: provide either old-wasm/new-wasm or contract-id/candidate-wasm" >&2
           exit 2
+        fi
+
+        if [[ -n "$INPUT_FAIL_ON" ]]; then
+          args+=(--fail-on "$INPUT_FAIL_ON")
         fi
 
         args+=(--format json)

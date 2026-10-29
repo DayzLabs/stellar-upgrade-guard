@@ -30,6 +30,7 @@ fn parses_valid_soroban_spec_wasm() {
             unions: vec![],
             errors: vec![],
             events: vec![],
+            env_meta: guard_core::EnvMeta::Absent,
         }
     );
 }
