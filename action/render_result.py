@@ -5,6 +5,10 @@ import re
 import sys
 
 
+MAX_SUMMARY_FINDINGS = 20
+MAX_SUMMARY_MESSAGE_LENGTH = 240
+
+
 def sanitize(text):
     text = re.sub(r"(?i)(authorization:\s*)\S+", r"\1<redacted>", text)
     text = re.sub(r"(?i)(api[-_]?key=)[^&\s]+", r"\1<redacted>", text)
@@ -12,6 +16,21 @@ def sanitize(text):
     text = re.sub(r"(https?://[^:/\s]+):[^@\s]+@", r"\1:<redacted>@", text)
     text = re.sub(r"(https?://[^\s?]+)\?[^)\]\s]+", r"\1?<redacted>", text)
     return text
+
+
+def summary_finding_lines(findings):
+    lines = []
+    for finding in findings[:MAX_SUMMARY_FINDINGS]:
+        impact = str(finding.get("impact", "unknown")).upper()
+        message = " ".join(sanitize(str(finding.get("message", ""))).split())
+        if len(message) > MAX_SUMMARY_MESSAGE_LENGTH:
+            message = f"{message[: MAX_SUMMARY_MESSAGE_LENGTH - 3]}..."
+        lines.append(f"- {impact}: {message}")
+
+    remaining = len(findings) - len(lines)
+    if remaining:
+        lines.append(f"- ...and {remaining} more finding(s)")
+    return lines
 
 
 def write_output(name, value):
@@ -89,18 +108,20 @@ def main():
         with open(mode_path, encoding="utf-8") as handle:
             mode = handle.read().strip()
 
-    append_summary(
-        [
-            "## Stellar Upgrade Guard",
-            "",
-            f"Mode: {mode}",
-            f"Result: {result.upper()}",
-            "",
-            f"Breaking: {breaking}",
-            f"Unknown: {unknown}",
-            f"Warnings: {warning}",
-        ]
-    )
+    summary_lines = [
+        "## Stellar Upgrade Guard",
+        "",
+        f"Mode: {mode}",
+        f"Result: {result.upper()}",
+        "",
+        f"Breaking: {breaking}",
+        f"Unknown: {unknown}",
+        f"Warnings: {warning}",
+    ]
+    if findings:
+        summary_lines.extend(["", "### Findings", ""])
+        summary_lines.extend(summary_finding_lines(findings))
+    append_summary(summary_lines)
 
     if stderr:
         print()

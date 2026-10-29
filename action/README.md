@@ -60,7 +60,10 @@ GitHub Actions marks the step failed for exit codes `1` and `2`. Breaking findin
 
 ## Step Summary
 
-When `$GITHUB_STEP_SUMMARY` is available, the action writes a compact summary with result and finding counts.
+When `$GITHUB_STEP_SUMMARY` is available, the action writes a compact summary with result,
+finding counts, and the individual finding messages. To keep summaries readable, it includes
+at most 20 findings and truncates each message at 240 characters; additional findings are
+counted in a final line. Finding messages receive the same secret redaction as stderr.
 
 ## Limitations
 
