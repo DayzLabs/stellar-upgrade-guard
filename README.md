@@ -27,13 +27,13 @@ From a source checkout:
 cargo install --path crates/guard-cli --locked --bin stellar-upgrade-guard
 ```
 
-From the release tag, after `v0.1.0` is created:
+From the `v0.1.0` release tag:
 
 ```text
 cargo install --git https://github.com/DayzLabs/stellar-upgrade-guard --tag v0.1.0 --locked --bin stellar-upgrade-guard
 ```
 
-Before the release tag exists, install from a local source checkout or a reviewed commit SHA. The project is not yet published to crates.io and does not yet publish binary release artifacts.
+The project is not currently published to crates.io. Install from the tagged GitHub release or from a source checkout.
 
 ## Inspect A WASM
 
@@ -141,7 +141,7 @@ Some RPC providers embed an API key or token in the endpoint URL. Treat any such
 
 ## GitHub Action
 
-This repository provides a composite GitHub Action at `action/` for external Soroban projects. After the `v0.1.0` tag is created, reference:
+This repository provides a composite GitHub Action at `action/` for external Soroban projects. To use the `v0.1.0` release in a workflow:
 
 ```yaml
 - uses: DayzLabs/stellar-upgrade-guard/action@v0.1.0
@@ -160,7 +160,7 @@ Deployed contract comparison:
     network: testnet
 ```
 
-Before the release tag exists, reference a reviewed commit SHA instead.
+For unreleased development versions, reference a reviewed commit SHA instead of a moving branch.
 
 The action preserves CLI exit behavior and fails workflows on exit `1` or `2`. See [action/README.md](action/README.md) for inputs, outputs, and security notes.
 
