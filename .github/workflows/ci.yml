@@ -45,3 +45,71 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Compile, test, and run the CLI on each supported OS, using the repository's declared
+  # minimum Rust version (`rust-version` in Cargo.toml). Formatting and clippy are
+  # platform-independent and stay in the `Rust` job above, which tracks stable.
+  #
+  # Dependencies: only a Rust toolchain. All crates come from Cargo.lock (`--locked`). TLS is
+  # rustls + ring, so no OpenSSL or pkg-config is needed; the C compiler `ring` uses is part
+  # of every GitHub-hosted runner image (gcc on Ubuntu, MSVC on Windows, clang on macOS).
+  # Tests use only committed fixtures and loopback servers, so no Stellar CLI, wasm target,
+  # Python, network access, or secrets are needed.
+  cross-platform:
+    name: Cross-platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    env:
+      # Keep in sync with `rust-version` in Cargo.toml. rustup uses this for every step.
+      RUSTUP_TOOLCHAIN: "1.91"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.RUSTUP_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          rustc -Vv
+          cargo -V
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cross-platform-rust-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cross-platform-rust-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      - name: Check
+        run: cargo check --workspace --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Build CLI
+        run: cargo build --locked --package guard-cli --bin stellar-upgrade-guard
+
+      # `cargo run` resolves the platform's executable name and path itself (no `.exe`
+      # handling), and runs the binary built by the previous step.
+      - name: Run CLI
+        run: |
+          help_output="$(cargo run --locked --quiet --package guard-cli --bin stellar-upgrade-guard -- --help)"
+          echo "$help_output"
+          grep -q "compare" <<< "$help_output"
